@@ -223,7 +223,7 @@ class Imagine(nn.Module):
 
         if i % self.save_every == 0:
             with torch.no_grad():
-                img = normalize_image(self.model(self.encoded_text, return_loss = False).cpu())
+                img = self.model(self.encoded_text, return_loss = False).cpu()
                 img.clamp_(0., 1.)
                 save_image(img, str(self.filename))
                 print(f'image updated at "./{str(self.filename)}"')
