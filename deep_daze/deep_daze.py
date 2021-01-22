@@ -1,93 +1,34 @@
+from pathlib import Path
+from datetime import datetime
+import signal
 import torch
 import torch.nn.functional as F
-from torch import nn
-from torch.optim import Adam
-from torch.cuda.amp import GradScaler, autocast
-
 import torchvision
+from siren_pytorch import SirenNet, SirenWrapper
+from torch import nn
+from torch.cuda.amp import GradScaler, autocast
+from torch.optim import Adam
 from torchvision.utils import save_image
-
-import os
-import sys
-import signal
-import subprocess
-from collections import namedtuple
-from pathlib import Path
 from tqdm import trange
 
 from deep_daze.clip import load, tokenize
-from siren_pytorch import SirenNet, SirenWrapper
+from deep_daze.util import *
 
-from einops import rearrange
-
-assert torch.cuda.is_available(), 'CUDA must be available in order to use Deep Daze'
-
-# graceful keyboard interrupt
-
-terminate = False                            
-
-def signal_handling(signum,frame):           
-    global terminate                         
-    terminate = True                         
-
-signal.signal(signal.SIGINT,signal_handling) 
-
-# helpers
-
-def exists(val):
-    return val is not None
-
-def interpolate(image, size):
-    return F.interpolate(image, (size, size), mode = 'bilinear', align_corners = False)
-
-def rand_cutout(image, size):
-    width = image.shape[-1]
-    offsetx = torch.randint(0, width - size, ())
-    offsety = torch.randint(0, width - size, ())
-    cutout = image[:, :, offsetx:offsetx + size, offsety:offsety + size]
-    return cutout
-
-def open_folder(path):
-    if os.path.isfile(path):
-        path = os.path.dirname(path)
-
-    if not os.path.isdir(path):
-        return
-
-    cmd_list = None
-    if sys.platform == 'darwin':
-        cmd_list = ['open', '--', path]
-    elif sys.platform == 'linux2' or sys.platform == 'linux':
-        cmd_list = ['xdg-open', path]
-    elif sys.platform in ['win32', 'win64']:
-        cmd_list = ['explorer', path.replace('/','\\')]
-    if cmd_list == None:
-        return
-
-    try:
-        subprocess.check_call(cmd_list)
-    except subprocess.CalledProcessError:
-        pass
-    except OSError:
-        pass
-
-# load clip
 
 perceptor, normalize_image = load()
 
-# load siren
+norm_siren_output = torchvision.transforms.Normalize(
+    (0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
 
-def norm_siren_output(img):
-    return ((img + 1) * 0.5).clamp(0, 1)
 
 class DeepDaze(nn.Module):
     def __init__(
         self,
         total_batches,
         batch_size,
-        num_layers = 8,
-        image_width = 512,
-        loss_coef = 100,
+        num_layers=12,
+        image_width=512,
+        loss_coef=-100,
     ):
         super().__init__()
         self.loss_coef = loss_coef
@@ -98,46 +39,54 @@ class DeepDaze(nn.Module):
         self.num_batches_processed = 0
 
         siren = SirenNet(
-            dim_in = 2,
-            dim_hidden = 256,
-            num_layers = num_layers,
-            dim_out = 3,
-            use_bias = True
+            dim_in=2,
+            dim_hidden=256,
+            num_layers=num_layers,
+            dim_out=3,
+            use_bias=True
         )
 
         self.model = SirenWrapper(
             siren,
-            image_width = image_width,
-            image_height = image_width
+            image_width=image_width,
+            image_height=image_width
         )
 
         self.generate_size_schedule()
 
-    def forward(self, text, return_loss = True):
-        out = self.model()
-        out = norm_siren_output(out)
+    '''
+    Generates a flattened grid of (x,y,...) coordinates in a range of -1 to 1.
+    sidelen: int
+    dim: int
+    '''
+
+    def forward(self, text, return_loss=False):
+        siren_out = self.model()
 
         if not return_loss:
-            return out
+            return siren_out
 
         pieces = []
-        width = out.shape[-1]
-        size_slice = slice(self.num_batches_processed, self.num_batches_processed + self.batch_size)
+        size_slice = slice(self.num_batches_processed,
+                           self.num_batches_processed + self.batch_size)
 
         for size in self.scheduled_sizes[size_slice]:
-            apper = rand_cutout(out, size)
-            apper = interpolate(apper, 224)
-            pieces.append(normalize_image(apper))
+            cropped_segment = rand_cutout(siren_out, size)
+            # wild guess, but 224px is 512 * 0.875 / 2. Maybe that scales to other image sizes.
+            bilinear_scaled_segment = norm_siren_output(
+                interpolate(cropped_segment, self.image_width * 0.875 / 2))
+            pieces.append(bilinear_scaled_segment)
 
-        image = torch.cat(pieces)
+        stitched_image = torch.cat(pieces)
 
-        with autocast(enabled = False):
-            image_embed = perceptor.encode_image(image)
+        with autocast(enabled=False):
+            image_embed = perceptor.encode_image(stitched_image)
             text_embed = perceptor.encode_text(text)
 
         self.num_batches_processed += self.batch_size
 
-        loss = -self.loss_coef * torch.cosine_similarity(text_embed, image_embed, dim = -1).mean()
+        loss = -self.loss_coef * \
+            torch.cosine_similarity(text_embed, image_embed, dim=-1).mean()
         return loss
 
     def generate_size_schedule(self):
@@ -156,19 +105,19 @@ class DeepDaze(nn.Module):
 
         # 6 piece schedule increasing in context as model saturates
         if counter < 500:
-            partition = [4,5,3,2,1,1]
+            partition = [4, 5, 3, 2, 1, 1]
         elif counter < 1000:
-            partition = [2,5,4,2,2,1]
+            partition = [2, 5, 4, 2, 2, 1]
         elif counter < 1500:
-            partition = [1,4,5,3,2,1]
+            partition = [1, 4, 5, 3, 2, 1]
         elif counter < 2000:
-            partition = [1,3,4,4,2,2]
+            partition = [1, 3, 4, 4, 2, 2]
         elif counter < 2500:
-            partition = [1,2,2,4,4,3]
+            partition = [1, 2, 2, 4, 4, 3]
         elif counter < 3000:
-            partition = [1,1,2,3,4,5]
+            partition = [1, 1, 2, 3, 4, 5]
         else:
-            partition = [1,1,1,2,4,7]
+            partition = [1, 1, 1, 2, 4, 7]
 
         dbase = .38
         step = .1
@@ -191,17 +140,17 @@ class Imagine(nn.Module):
         self,
         text,
         *,
-        lr = 1e-5,
-        batch_size = 4,
-        gradient_accumulate_every = 4,
-        save_every = 100,
-        image_width = 512,
-        num_layers = 16,
-        epochs = 20,
-        iterations = 1050,
-        save_progress = False,
-        seed = None,
-        open_folder = True
+        lr=1e-5,
+        batch_size=4,
+        gradient_accumulate_every=4,
+        save_every=100,
+        image_width=512,
+        num_layers=16,
+        epochs=20,
+        iterations=1050,
+        save_progress=False,
+        seed=None,
+        open_folder=True
     ):
         super().__init__()
 
@@ -212,58 +161,75 @@ class Imagine(nn.Module):
         self.epochs = epochs
         self.iterations = iterations
         total_batches = epochs * iterations * batch_size * gradient_accumulate_every
+        # For each epoch
+        # for each iteration
+        # generate 8 and accumulate them before continuing?
 
-        model = DeepDaze(
-            total_batches = total_batches,
-            batch_size = batch_size,
-            image_width = image_width,
-            num_layers = num_layers
+        deep_daze_model = DeepDaze(
+            total_batches=total_batches,
+            batch_size=batch_size,
+            image_width=image_width,
+            num_layers=num_layers
         ).cuda()
 
-        self.model = model
+        self.model = deep_daze_model
 
         self.scaler = GradScaler()
-        self.optimizer = Adam(model.parameters(), lr)
+        self.optimizer = Adam(self.model.parameters(), lr)
         self.gradient_accumulate_every = gradient_accumulate_every
         self.save_every = save_every
 
         self.text = text
-        textpath = self.text.replace(' ','_')
+        textpath = self.text.replace(' ', '_')
 
         self.textpath = textpath
         self.filename = Path(f'./{textpath}.png')
         self.save_progress = save_progress
-
         self.encoded_text = tokenize(text).cuda()
-
         self.open_folder = open_folder
 
-    def train_step(self, epoch, i):
+    def generate_image_cpu(self, current_epoch, current_iter):
+        with torch.no_grad():
+            img = norm_siren_output(self.model(
+                self.encoded_text, return_loss=False).cpu())
+            save_image(img, str(self.filename))
+            print(f'image updated at "./{str(self.filename)}"')
+
+            if self.save_progress:
+                current_time = datetime.now().strftime("%Y_%m_%d-%I_%M_%S_%p")
+                save_image(img, Path(
+                    f'./{self.textpath}_{current_epoch}_{current_iter}_{current_time}.png'))
+
+    def train_step(self, epoch, iteration):
         total_loss = 0
 
+        # Generate {gradient_accumulate_every}
+        print(f'accumulating loss from {self.gradient_accumulate_every} generations of the model')
         for _ in range(self.gradient_accumulate_every):
             with autocast():
                 loss = self.model(self.encoded_text)
-            loss = loss / self.gradient_accumulate_every
-            total_loss += loss
-            self.scaler.scale(loss).backward()
+            # Each generation is given 1/{num} importance in loss bc they can't change here.
+            # No use in penalizing a net that has no ability to change.
+            weighted_loss = loss / self.gradient_accumulate_every
+            total_loss += weighted_loss
+            print(f'  accumulation generation {_}: loss: {loss} | weighted_loss: {weighted_loss} | total_loss (so far): {total_loss}')
 
+        self.scaler.scale(total_loss).backward() 
         self.scaler.step(self.optimizer)
         self.scaler.update()
         self.optimizer.zero_grad()
-
-        if i % self.save_every == 0:
-            with torch.no_grad():
-                img = normalize_image(self.model(self.encoded_text, return_loss = False).cpu())
-                img.clamp_(0., 1.)
-                save_image(img, str(self.filename))
-                print(f'image updated at "./{str(self.filename)}"')
-
-                if self.save_progress:
-                    num = i // self.save_every
-                    save_image(img, Path(f'./{self.textpath}.{num}.png'))
+        self.generate_image_cpu(epoch, iteration)
 
         return total_loss
+
+    # graceful keyboard interrupt
+    terminate = False
+
+    def signal_handling(signum, frame):
+        global terminate
+        terminate = True
+
+    signal.signal(signal.SIGINT, signal_handling)
 
     def forward(self):
         print(f'Imagining "{self.text}" from the depths of my weights...')
@@ -271,11 +237,10 @@ class Imagine(nn.Module):
         if self.open_folder:
             open_folder('./')
 
-        for epoch in trange(self.epochs, desc = 'epochs'):
-            pbar = trange(self.iterations, desc='iteration')
-            for i in pbar:
-                loss = self.train_step(epoch, i)
-                pbar.set_description(f'loss: {loss.item():.2f}')
+        for epoch_pbar in trange(self.epochs, desc='epochs'):
+            for iter_pbar in trange(self.iterations, desc='iterations'):
+                loss = self.train_step(epoch_pbar, iter_pbar)
+                iter_pbar.set_description(f'loss: {loss.item():.2f}')
 
                 if terminate:
                     print('interrupted by keyboard, gracefully exiting')

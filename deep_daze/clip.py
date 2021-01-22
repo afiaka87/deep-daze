@@ -1,24 +1,20 @@
-import torch
-from torch import nn
-import torch.nn.functional as F
-from torchvision.transforms import Normalize
-
 import hashlib
+import html
 import os
 import urllib
 import warnings
-
-from PIL import Image
-from tqdm import tqdm
-from pathlib import Path
-
-import html
-import os
-from functools import lru_cache
 from collections import OrderedDict
+from functools import lru_cache
+from pathlib import Path
 
 import ftfy
 import regex as re
+import torch
+import torch.nn.functional as F
+from PIL import Image
+from torch import nn
+from torchvision.transforms import Normalize
+from tqdm import tqdm
 
 MODEL_PATH = "https://openaipublic.azureedge.net/clip/models/40d365715913c9da98579312b702a82c18be219cc2a73407c4526f58eba950af/ViT-B-32.pt"
 
