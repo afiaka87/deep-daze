@@ -14,11 +14,20 @@ from tqdm import trange
 from deep_daze.clip import load, tokenize
 from deep_daze.util import *
 
+# graceful keyboard interrupt
+terminate = False
+
+
+def signal_handling(signum, frame):
+    global terminate
+    terminate = True
+
+signal.signal(signal.SIGINT, signal_handling)
 
 perceptor, normalize_image = load()
 
-norm_siren_output = torchvision.transforms.Normalize(
-    (0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+def norm_siren_output(img):
+    return ((img + 1) * 0.5).clamp(0, 1)
 
 
 class DeepDaze(nn.Module):
@@ -26,9 +35,9 @@ class DeepDaze(nn.Module):
         self,
         total_batches,
         batch_size,
-        num_layers=12,
+        num_layers=8,
         image_width=512,
-        loss_coef=-100,
+        loss_coef=100,
     ):
         super().__init__()
         self.loss_coef = loss_coef
@@ -54,11 +63,6 @@ class DeepDaze(nn.Module):
 
         self.generate_size_schedule()
 
-    '''
-    Generates a flattened grid of (x,y,...) coordinates in a range of -1 to 1.
-    sidelen: int
-    dim: int
-    '''
 
     def forward(self, text, return_loss=False):
         siren_out = self.model()
@@ -74,7 +78,7 @@ class DeepDaze(nn.Module):
             cropped_segment = rand_cutout(siren_out, size)
             # wild guess, but 224px is 512 * 0.875 / 2. Maybe that scales to other image sizes.
             bilinear_scaled_segment = norm_siren_output(
-                interpolate(cropped_segment, self.image_width * 0.875 / 2))
+                interpolate(cropped_segment, 224))
             pieces.append(bilinear_scaled_segment)
 
         stitched_image = torch.cat(pieces)
@@ -188,48 +192,65 @@ class Imagine(nn.Module):
         self.encoded_text = tokenize(text).cuda()
         self.open_folder = open_folder
 
-    def generate_image_cpu(self, current_epoch, current_iter):
-        with torch.no_grad():
-            img = norm_siren_output(self.model(
-                self.encoded_text, return_loss=False).cpu())
-            save_image(img, str(self.filename))
-            print(f'image updated at "./{str(self.filename)}"')
 
-            if self.save_progress:
-                current_time = datetime.now().strftime("%Y_%m_%d-%I_%M_%S_%p")
-                save_image(img, Path(
-                    f'./{self.textpath}_{current_epoch}_{current_iter}_{current_time}.png'))
+    # def train_step(self, epoch, iteration):
+    #     total_loss = 0
 
-    def train_step(self, epoch, iteration):
+    #     # Generate {gradient_accumulate_every}
+    #     print(f'accumulating loss from {self.gradient_accumulate_every} generations of the model')
+    #     for _ in range(self.gradient_accumulate_every):
+    #         with autocast():
+    #             loss = self.model(self.encoded_text)
+    #         loss = loss / self.gradient_accumulate_every
+    #         total_loss += loss
+    #         self.scaler.scale(loss).backward() 
+
+    #     self.scaler.step(self.optimizer)
+    #     self.scaler.update()
+    #     self.optimizer.zero_grad()
+
+    #     if iteration % self.save_every == 0:
+    #         with torch.no_grad():
+    #             img = normalize_image(self.model(self.encoded_text, return_loss=False).cpu())
+    #             img.clamp(0., 1.)
+    #             save_image(img, str(self.filename))
+    #             print(f'image updated at "./{str(self.filename)}"')
+
+    #             if self.save_progress:
+    #                 current_time = datetime.now().strftime("%Y_%m_%d-%I_%M_%S_%p")
+    #                 save_image(img, Path(
+    #                     f'./output/{self.textpath}_{epoch}_{iteration}_{current_time}.png'))
+
+    #         return total_loss
+
+    def train_step(self, epoch, i):
         total_loss = 0
 
-        # Generate {gradient_accumulate_every}
-        print(f'accumulating loss from {self.gradient_accumulate_every} generations of the model')
         for _ in range(self.gradient_accumulate_every):
             with autocast():
                 loss = self.model(self.encoded_text)
-            # Each generation is given 1/{num} importance in loss bc they can't change here.
-            # No use in penalizing a net that has no ability to change.
-            weighted_loss = loss / self.gradient_accumulate_every
-            total_loss += weighted_loss
-            print(f'  accumulation generation {_}: loss: {loss} | weighted_loss: {weighted_loss} | total_loss (so far): {total_loss}')
+            loss = loss / self.gradient_accumulate_every
+            total_loss += loss
+            self.scaler.scale(loss).backward()
 
-        self.scaler.scale(total_loss).backward() 
         self.scaler.step(self.optimizer)
         self.scaler.update()
         self.optimizer.zero_grad()
-        self.generate_image_cpu(epoch, iteration)
+
+        if i % self.save_every == 0:
+            with torch.no_grad():
+                img = normalize_image(self.model(self.encoded_text, return_loss = False).cpu())
+                img.clamp_(0., 1.)
+                save_image(img, str(self.filename))
+                print(f'image updated at "./{str(self.filename)}"')
+
+                if self.save_progress:
+                    num = i // self.save_every
+                    save_image(img, Path(f'./{self.textpath}.{num}.png'))
 
         return total_loss
 
-    # graceful keyboard interrupt
-    terminate = False
 
-    def signal_handling(signum, frame):
-        global terminate
-        terminate = True
-
-    signal.signal(signal.SIGINT, signal_handling)
 
     def forward(self):
         print(f'Imagining "{self.text}" from the depths of my weights...')
@@ -237,10 +258,12 @@ class Imagine(nn.Module):
         if self.open_folder:
             open_folder('./')
 
-        for epoch_pbar in trange(self.epochs, desc='epochs'):
-            for iter_pbar in trange(self.iterations, desc='iterations'):
-                loss = self.train_step(epoch_pbar, iter_pbar)
-                iter_pbar.set_description(f'loss: {loss.item():.2f}')
+        for epoch in trange(self.epochs, desc='epochs'):
+            iter_pbar = trange(self.iterations, desc='iteration')
+            for iteration in iter_pbar:
+                loss = self.train_step(epoch, iteration)
+                # iter_pbar.set_description(f'loss: {loss.item():.2f}')
+                print(loss)
 
                 if terminate:
                     print('interrupted by keyboard, gracefully exiting')
