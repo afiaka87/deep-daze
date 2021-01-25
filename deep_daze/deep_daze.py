@@ -256,7 +256,8 @@ class Imagine(nn.Module):
             loss = loss / self.gradient_accumulate_every
             total_loss += loss
 
-        self.scaler.scale(total_loss).backward()
+        if total_loss != 0:
+            self.scaler.scale(total_loss).backward()
         self.scaler.step(self.optimizer)
         self.scaler.update()
         self.optimizer.zero_grad()
