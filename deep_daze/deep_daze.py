@@ -74,13 +74,14 @@ class DeepDaze(nn.Module):
                 pieces.append(normalize_image(apper))
 
             image = torch.cat(pieces)
-            _log("")
+            _log(f"Concatenated cutouts: {image}")
 
             with autocast(enabled=False):
                 image_embed = perceptor.encode_image(image)
                 text_embed = perceptor.encode_text(text)
 
             self.num_batches_processed += self.batch_size
+            _log(f"Total batches processed: {self.num_batches_processed}")
 
             loss = -self.loss_coefficient * torch.cosine_similarity(text_embed, image_embed, dim=-1).mean()
             return loss
@@ -127,4 +128,5 @@ class DeepDaze(nn.Module):
                     int((dbase + step * (1 + part_index)) * width), ()))
 
         sizes.sort()
+        _log(f"counter: {counter}, sizes: {sizes}")
         return sizes
