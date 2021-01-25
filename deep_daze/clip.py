@@ -3,8 +3,10 @@ import html
 import os
 import urllib
 import warnings
+from ctypes import Union
 from functools import lru_cache
 from pathlib import Path
+from typing import Tuple
 
 import ftfy
 import regex as re
@@ -12,7 +14,8 @@ import torch
 from torchvision.transforms import Normalize
 from tqdm import tqdm
 
-MODEL_PATH = "https://openaipublic.azureedge.net/clip/models/40d365715913c9da98579312b702a82c18be219cc2a73407c4526f58eba950af/ViT-B-32.pt"
+MODEL_PATH = "https://openaipublic.azureedge.net/clip/models" \
+             "/40d365715913c9da98579312b702a82c18be219cc2a73407c4526f58eba950af/ViT-B-32.pt "
 
 
 @lru_cache()
@@ -162,7 +165,7 @@ def _download(url, root=os.path.expanduser("~/.cache/clip")):
     return download_target
 
 
-def load():
+def siren_model_and_norm() -> Tuple[torch.jit.RecursiveScriptModule, Normalize]:
     device = 'cuda'
     model_path = _download(MODEL_PATH)
     model = torch.jit.load(model_path, map_location=device).eval()

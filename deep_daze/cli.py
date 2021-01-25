@@ -2,6 +2,7 @@ import sys
 
 import fire
 
+import deep_daze.util
 from deep_daze import Imagine
 
 
@@ -21,7 +22,6 @@ def train(
         seed=None,
         open_folder=True
 ):
-    print('Starting up...')
 
     if deeper:
         num_layers = 32
@@ -37,10 +37,12 @@ def train(
         save_every=save_every,
         save_progress=save_progress,
         seed=seed,
-        open_folder=open_folder
+        open_folder=open_folder,
+        image_width=image_width,
+        debug=True
     )
 
-    if not overwrite and imagine.filename.exists():
+    if not overwrite and deep_daze.util.exists():
         answer = input('Imagined image already exists, do you want to overwrite? (y/n) ').lower()
         if answer not in ('yes', 'y'):
             sys.exit()

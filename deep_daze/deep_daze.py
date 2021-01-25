@@ -1,84 +1,20 @@
-import os
 import signal
-import subprocess
-import sys
-from pathlib import Path
 
 import torch
-import torch.nn.functional as F
 from siren_pytorch import SirenNet, SirenWrapper
 from torch import nn
-from torch.cuda.amp import GradScaler, autocast
-from torch.optim import Adam
-from torchvision.utils import save_image
-from tqdm import trange
+from torch.cuda.amp import autocast
 
-from deep_daze.clip import load, tokenize
+from deep_daze.clip import siren_model_and_norm
+from deep_daze.util import signal_handling, interpolate, rand_cutout, _log
 
 assert torch.cuda.is_available(), 'CUDA must be available in order to use Deep Daze'
 
-# graceful keyboard interrupt
-
-terminate = False
-
-
-def signal_handling(signum, frame):
-    global terminate
-    terminate = True
-
+terminate = False  # graceful keyboard interrupt
 
 signal.signal(signal.SIGINT, signal_handling)
+perceptor, normalize_image = siren_model_and_norm()
 
-
-# helpers
-
-def exists(val):
-    return val is not None
-
-
-def interpolate(image, size):
-    return F.interpolate(image, (size, size), mode='bilinear', align_corners=False)
-
-
-def rand_cutout(image, size):
-    width = image.shape[-1]
-    offsetx = torch.randint(0, width - size, ())
-    offsety = torch.randint(0, width - size, ())
-    cutout = image[:, :, offsetx:offsetx + size, offsety:offsety + size]
-    return cutout
-
-
-def open_folder(path):
-    if os.path.isfile(path):
-        path = os.path.dirname(path)
-
-    if not os.path.isdir(path):
-        return
-
-    cmd_list = None
-    if sys.platform == 'darwin':
-        cmd_list = ['open', '--', path]
-    elif sys.platform == 'linux2' or sys.platform == 'linux':
-        cmd_list = ['xdg-open', path]
-    elif sys.platform in ['win32', 'win64']:
-        cmd_list = ['explorer', path.replace('/', '\\')]
-    if cmd_list == None:
-        return
-
-    try:
-        subprocess.check_call(cmd_list)
-    except subprocess.CalledProcessError:
-        pass
-    except OSError:
-        pass
-
-
-# load clip
-
-perceptor, normalize_image = load()
-
-
-# load siren
 
 def norm_siren_output(img):
     return ((img + 1) * 0.5).clamp(0, 1)
@@ -91,10 +27,13 @@ class DeepDaze(nn.Module):
             batch_size,
             num_layers=8,
             image_width=512,
-            loss_coef=100,
+            loss_coefficient=100,
+            debug=False
     ):
         super().__init__()
-        self.loss_coef = loss_coef
+        self.debug = debug
+        self.scheduled_sizes = []
+        self.loss_coefficient = loss_coefficient
         self.image_width = image_width
 
         self.batch_size = batch_size
@@ -109,7 +48,7 @@ class DeepDaze(nn.Module):
             use_bias=True
         )
 
-        self.model = SirenWrapper(
+        self.siren_model = SirenWrapper(
             siren,
             image_width=image_width,
             image_height=image_width
@@ -118,36 +57,37 @@ class DeepDaze(nn.Module):
         self.generate_size_schedule()
 
     def forward(self, text, return_loss=True):
-        out = self.model()
-        out = norm_siren_output(out)
+        siren_model_output = self.siren_model()
+        # TODO is this the line that wasn't needed?
+        # siren_normalized_output = norm_siren_output(siren_model_output)
 
         if not return_loss:
-            return out
+            pieces = []
+            # width = siren_normalized_output.shape[-1]
+            size_slice = slice(self.num_batches_processed, self.num_batches_processed + self.batch_size)
 
-        pieces = []
-        width = out.shape[-1]
-        size_slice = slice(self.num_batches_processed, self.num_batches_processed + self.batch_size)
+            for size in self.scheduled_sizes[size_slice]:
+                apper = rand_cutout(siren_model_output, size)
+                _log(f"Random cutout: {apper}")
+                apper = interpolate(apper, 224)
+                _log(f"Random cutout bilinearly interpolated to 224 px: {apper}")
+                pieces.append(normalize_image(apper))
 
-        for size in self.scheduled_sizes[size_slice]:
-            apper = rand_cutout(out, size)
-            apper = interpolate(apper, 224)
-            pieces.append(normalize_image(apper))
+            image = torch.cat(pieces)
+            _log("")
 
-        image = torch.cat(pieces)
+            with autocast(enabled=False):
+                image_embed = perceptor.encode_image(image)
+                text_embed = perceptor.encode_text(text)
 
-        with autocast(enabled=False):
-            image_embed = perceptor.encode_image(image)
-            text_embed = perceptor.encode_text(text)
+            self.num_batches_processed += self.batch_size
 
-        self.num_batches_processed += self.batch_size
-
-        loss = -self.loss_coef * torch.cosine_similarity(text_embed, image_embed, dim=-1).mean()
-        return loss
+            loss = -self.loss_coefficient * torch.cosine_similarity(text_embed, image_embed, dim=-1).mean()
+            return loss
 
     def generate_size_schedule(self):
         batches = 0
         counter = 0
-        self.scheduled_sizes = []
 
         while batches < self.total_batches:
             counter += 1
@@ -188,104 +128,3 @@ class DeepDaze(nn.Module):
 
         sizes.sort()
         return sizes
-
-
-class Imagine(nn.Module):
-    def __init__(
-            self,
-            text,
-            *,
-            lr=1e-5,
-            batch_size=4,
-            gradient_accumulate_every=4,
-            save_every=100,
-            image_width=512,
-            num_layers=16,
-            epochs=20,
-            iterations=1050,
-            save_progress=False,
-            seed=None,
-            open_folder=True
-    ):
-        super().__init__()
-
-        if exists(seed):
-            print(f'setting seed: {seed}')
-            torch.manual_seed(seed)
-            torch.cuda.manual_seed(seed)
-            random.seed(seed)
-            torch.backends.cudnn.deterministic = True
-
-        self.epochs = epochs
-        self.iterations = iterations
-        total_batches = epochs * iterations * batch_size * gradient_accumulate_every
-
-        model = DeepDaze(
-            total_batches=total_batches,
-            batch_size=batch_size,
-            image_width=image_width,
-            num_layers=num_layers
-        ).cuda()
-
-        self.model = model
-
-        self.scaler = GradScaler()
-        self.optimizer = Adam(model.parameters(), lr)
-        self.gradient_accumulate_every = gradient_accumulate_every
-        self.save_every = save_every
-
-        self.text = text
-        textpath = self.text.replace(' ', '_')
-
-        self.textpath = textpath
-        self.filename = Path(f'./{textpath}.png')
-        self.save_progress = save_progress
-
-        self.encoded_text = tokenize(text).cuda()
-
-        self.open_folder = open_folder
-
-    def train_step(self, epoch, i):
-        total_loss = 0
-
-        for _ in range(self.gradient_accumulate_every):
-            with autocast():
-                loss = self.model(self.encoded_text)
-            loss = loss / self.gradient_accumulate_every
-            total_loss += loss
-            self.scaler.scale(loss).backward()
-
-        self.scaler.step(self.optimizer)
-        self.scaler.update()
-        self.optimizer.zero_grad()
-
-        if i % self.save_every == 0:
-            with torch.no_grad():
-                img = normalize_image(self.model(self.encoded_text, return_loss=False).cpu())
-                img.clamp_(0., 1.)
-                save_image(img, str(self.filename))
-                print(f'image updated at "./{str(self.filename)}"')
-
-                if self.save_progress:
-                    current_total_iterations = epoch * self.iterations + i
-                    num = current_total_iterations // self.save_every
-                    save_image(img, Path(f'./{self.textpath}.{num}.png'))
-
-        return total_loss
-
-    def forward(self):
-        print(f'Imagining "{self.text}" from the depths of my weights...')
-
-        if self.open_folder:
-            open_folder('./')
-            self.open_folder = False
-
-        for epoch in trange(self.epochs, desc='epochs'):
-            pbar = trange(self.iterations, desc='iteration')
-            for i in pbar:
-                loss = self.train_step(epoch, i)
-                pbar.set_description(f'loss: {loss.item():.2f}')
-
-                if terminate:
-                    print('interrupted by keyboard, gracefully exiting')
-                    return
