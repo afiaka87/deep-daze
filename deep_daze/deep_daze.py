@@ -61,7 +61,7 @@ class DeepDaze(nn.Module):
         # TODO is this the line that wasn't needed?
         # siren_normalized_output = norm_siren_output(siren_model_output)
 
-        if not return_loss:
+        if return_loss:
             pieces = []
             # width = siren_normalized_output.shape[-1]
             size_slice = slice(self.num_batches_processed, self.num_batches_processed + self.batch_size)
