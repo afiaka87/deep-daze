@@ -63,7 +63,7 @@ class DeepDaze(nn.Module):
 
         if return_loss:
             pieces = []
-            # width = siren_normalized_output.shape[-1]
+            width = siren_normalized_output.shape[-1]
             size_slice = slice(self.num_batches_processed, self.num_batches_processed + self.batch_size)
 
             for size in self.scheduled_sizes[size_slice]:
@@ -71,9 +71,8 @@ class DeepDaze(nn.Module):
                 _log(f"Random cutout: {apper}")
                 apper = interpolate(apper, 224)
                 _log(f"Random cutout bilinearly interpolated to 224 px: {apper}")
-                pieces.append(apper)
                 # TODO Is this the line that isn't needed?
-                # pieces.append(normalize_image(apper))
+                pieces.append(normalize_image(apper))
 
             image = torch.cat(pieces)
             _log(f"Concatenated cutouts: {image}")
