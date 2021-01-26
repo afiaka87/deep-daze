@@ -59,7 +59,7 @@ class DeepDaze(nn.Module):
     def forward(self, text, return_loss=True):
         siren_model_output = self.siren_model()
         # TODO is this the line that wasn't needed?
-        # siren_normalized_output = norm_siren_output(siren_model_output)
+        siren_normalized_output = norm_siren_output(siren_model_output)
 
         if return_loss:
             pieces = []
@@ -67,11 +67,13 @@ class DeepDaze(nn.Module):
             size_slice = slice(self.num_batches_processed, self.num_batches_processed + self.batch_size)
 
             for size in self.scheduled_sizes[size_slice]:
-                apper = rand_cutout(siren_model_output, size)
+                apper = rand_cutout(siren_normalized_output, size)
                 _log(f"Random cutout: {apper}")
                 apper = interpolate(apper, 224)
                 _log(f"Random cutout bilinearly interpolated to 224 px: {apper}")
-                pieces.append(normalize_image(apper))
+                pieces.append(apper)
+                # TODO Is this the line that isn't needed?
+                # pieces.append(normalize_image(apper))
 
             image = torch.cat(pieces)
             _log(f"Concatenated cutouts: {image}")
