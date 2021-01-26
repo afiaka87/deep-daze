@@ -28,7 +28,7 @@ class DeepDaze(nn.Module):
             num_layers=8,
             image_width=512,
             loss_coefficient=100,
-            debug=False
+            debug=True
     ):
         super().__init__()
         self.debug = debug
