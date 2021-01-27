@@ -114,6 +114,11 @@ class DeepDaze(nn.Module):
             image_width=image_width,
             image_height=image_width
         )
+        if torch.cuda.device_count() > 1:
+            self.model = nn.DataParallel(self.model)
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model.to(device)
 
         self.generate_size_schedule()
 
@@ -220,14 +225,20 @@ class Imagine(nn.Module):
         self.iterations = iterations
         total_batches = epochs * iterations * batch_size * gradient_accumulate_every
 
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = DeepDaze(
             total_batches=total_batches,
             batch_size=batch_size,
             image_width=image_width,
             num_layers=num_layers
-        ).cuda()
+        )
 
+        if torch.cuda.device_count() > 1:
+            model = nn.DataParallel(model)
+
+        model.to(device)
         self.model = model
+
 
         self.scaler = GradScaler()
         self.optimizer = Adam(model.parameters(), lr)
