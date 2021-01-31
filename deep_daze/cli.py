@@ -20,7 +20,10 @@ def train(
         save_progress=False,
         seed=None,
         open_folder=True,
-        save_date_time=False
+        output_path="./",
+        save_date_time=False,
+        theta_initial=30.,
+        theta_hidden=30.,
 ):
     """
     :param text: (required) A phrase less than 77 characters which you would like to visualize.
@@ -33,11 +36,14 @@ def train(
     :param save_progress: Whether or not to save images generated before training Siren is complete.
     :param save_every: Generate an image every time iterations is a multiple of this number.
     :param open_folder:  Whether or not to open a folder showing your generated images.
+    :param output_path: The directory to save images in.
     :param overwrite: Whether or not to overwrite existing generated images of the same name.
     :param deeper: Uses a Siren neural net with 32 hidden layers.
     :param image_width: The desired resolution of the image.
     :param seed: A seed to be used for deterministic runs.
     :param save_date_time: Save files with a timestamp prepended e.g. `%y%m%d-%H%M%S-my_phrase_here.png`
+    :param theta_initial:  (experimental) A hyperparameter to change the initial "color space" that deep-daze uses for its very first layer. Won't apply to hidden layers.
+    :param theta_hidden: (experimental) A hyperparameter to change the "color space" that deep-daze uses for its hidden layers. Won't apply to the first layer of Siren.
     """
     # Don't instantiate imagine if the user just wants help.
     if any("--help" in arg for arg in sys.argv):
@@ -59,7 +65,10 @@ def train(
         save_progress=save_progress,
         seed=seed,
         open_folder=open_folder,
-        save_date_time=save_date_time
+        output_path=output_path,
+        save_date_time=save_date_time,
+        theta_initial=float(theta_initial),
+        theta_hidden=float(theta_hidden)
     )
 
     print('Starting up...')

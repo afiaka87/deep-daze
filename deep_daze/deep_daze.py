@@ -5,7 +5,6 @@ import sys
 import random
 from datetime import datetime
 from pathlib import Path
-from shutil import copy
 
 import torch
 import torch.nn.functional as F
@@ -67,7 +66,7 @@ def open_folder(path):
         cmd_list = ['xdg-open', path]
     elif sys.platform in ['win32', 'win64']:
         cmd_list = ['explorer', path.replace('/', '\\')]
-    if cmd_list == None:
+    if cmd_list is None:
         return
 
     try:
@@ -90,6 +89,8 @@ class DeepDaze(nn.Module):
             num_layers=8,
             image_width=512,
             loss_coef=100,
+            theta_initial=30.,
+            theta_hidden=30.
     ):
         super().__init__()
         # load clip
@@ -106,7 +107,9 @@ class DeepDaze(nn.Module):
             dim_hidden=256,
             num_layers=num_layers,
             dim_out=3,
-            use_bias=True
+            use_bias=True,
+            w0_initial=theta_initial,
+            w0=theta_hidden
         )
 
         self.model = SirenWrapper(
@@ -206,7 +209,10 @@ class Imagine(nn.Module):
             save_progress=False,
             seed=None,
             open_folder=True,
-            save_date_time=False
+            save_date_time=False,
+            theta_initial=30.,
+            theta_hidden=30.,
+            output_path="./",
     ):
 
         super().__init__()
@@ -226,7 +232,9 @@ class Imagine(nn.Module):
             total_batches=total_batches,
             batch_size=batch_size,
             image_width=image_width,
-            num_layers=num_layers
+            num_layers=num_layers,
+            theta_hidden=theta_hidden,
+            theta_initial=theta_initial
         ).cuda()
 
         self.model = model
@@ -238,6 +246,7 @@ class Imagine(nn.Module):
         self.open_folder = open_folder
         self.save_progress = save_progress
         self.text = text
+        self.output_path = output_path
         self.textpath = text.replace(" ", "_")
         self.filename = self.image_output_path()
         self.encoded_text = tokenize(text).cuda()
@@ -259,16 +268,12 @@ class Imagine(nn.Module):
         return Path(f"{output_path}.png")
 
     def generate_and_save_image(self, sequence_number=None):
-        """
-        :param sequence_number:
-        :param custom_filename: A custom filename to use when saving - e.g. "testing.png"
-        """
         with torch.no_grad():
             img = normalize_image(self.model(self.encoded_text, return_loss=False).cpu())
             img.clamp_(0., 1.)
             self.filename = self.image_output_path(sequence_number=sequence_number)
-            save_image(img, self.filename)
-            save_image(img, f"{self.textpath}.png")
+            save_image(img, f"{self.output_path}/{self.filename}")
+            save_image(img, f"{self.output_path}/{self.textpath}.png")
 
             tqdm.write(f'image updated at "./{str(self.filename)}"')
 
@@ -297,7 +302,7 @@ class Imagine(nn.Module):
         tqdm.write(f'Imagining "{self.text}" from the depths of my weights...')
 
         if self.open_folder:
-            open_folder('./')
+            open_folder(f'{self.output_path}')
             self.open_folder = False
 
         for epoch in trange(self.epochs, desc='epochs'):
