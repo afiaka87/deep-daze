@@ -42,8 +42,8 @@ def train(
     :param image_width: The desired resolution of the image.
     :param seed: A seed to be used for deterministic runs.
     :param save_date_time: Save files with a timestamp prepended e.g. `%y%m%d-%H%M%S-my_phrase_here.png`
-    :param theta_initial:  (experimental) A hyperparameter to change the initial "color space" that deep-daze uses for its very first layer. Won't apply to hidden layers.
-    :param theta_hidden: (experimental) A hyperparameter to change the "color space" that deep-daze uses for its hidden layers. Won't apply to the first layer of Siren.
+    :param theta_initial:  (experimental) A hyperparameter to change the "color space" that deep-daze uses for its first layer. Values range from 1 to 360. Won't apply to hidden layers.
+    :param theta_hidden: (experimental) A hyperparameter to change the "color space" that deep-daze uses for its hidden layers. Values range from 1 to 360. Won't apply to the first layer.
     """
     # Don't instantiate imagine if the user just wants help.
     if any("--help" in arg for arg in sys.argv):

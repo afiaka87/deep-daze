@@ -69,7 +69,7 @@ $ imagine "stranger in strange lands" --num-layers 32
 ## Usage
 
 ### CLI
-```bash
+```commandline
 NAME
     imagine
 
@@ -121,9 +121,18 @@ FLAGS
     --open_folder=OPEN_FOLDER
         Default: True
         Whether or not to open a folder showing your generated images.
+    --output_path=OUTPUT_PATH
+        Default: "./"
+        The directory to save images in.
     --save_date_time=SAVE_DATE_TIME
         Default: False
         Save files with a timestamp prepended e.g. `%y%m%d-%H%M%S-my_phrase_here`
+    --theta_initial=THETA_INITIAL
+        Default: 30.0
+        (experimental) A hyperparameter to change the initial "color space" that deep-daze uses for its very first layer. Won't apply to hidden layers.
+    --theta_hidden=THETA_HIDDEN
+        Default: 30.0
+        (experimental) A hyperparameter to change the "color space" that deep-daze uses for its hidden layers. Won't apply to the first layer of Siren.
 ```
 
 ### Python
