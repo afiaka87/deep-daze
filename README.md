@@ -129,10 +129,10 @@ FLAGS
         Save files with a timestamp prepended e.g. `%y%m%d-%H%M%S-my_phrase_here`
     --theta_initial=THETA_INITIAL
         Default: 30.0
-        (experimental) A hyperparameter to change the initial "color space" that deep-daze uses for its very first layer. Won't apply to hidden layers.
+        (experimental) A hyperparameter to change the initial "color space" that deep-daze uses for its first layer. Values range from 1 to 360. Won't apply to hidden layers.
     --theta_hidden=THETA_HIDDEN
         Default: 30.0
-        (experimental) A hyperparameter to change the "color space" that deep-daze uses for its hidden layers. Won't apply to the first layer of Siren.
+        (experimental) A hyperparameter to change the "color space" that deep-daze uses for its hidden layers. Values range from 1 to 360. Won't apply to the first layer.
 ```
 
 ### Python
