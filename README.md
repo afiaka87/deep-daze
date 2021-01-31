@@ -69,7 +69,7 @@ $ imagine "stranger in strange lands" --num-layers 32
 ## Usage
 
 ### CLI
-```commandline
+```python
 NAME
     imagine
 
