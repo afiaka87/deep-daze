@@ -212,7 +212,9 @@ class Imagine(nn.Module):
             open_folder=True,
             save_date_time=False,
             start_image_path=None,
-            start_image_train_iters=10
+            start_image_train_iters=10,
+            start_image_lr=3e-4
+
     ):
 
         super().__init__()
@@ -243,6 +245,8 @@ class Imagine(nn.Module):
         self.save_date_time = save_date_time
         self.open_folder = open_folder
         self.save_progress = save_progress
+        self.start_image_lr = start_image_lr
+
         self.text = text
         self.textpath = text.replace(" ", "_")
         self.filename = self.image_output_path()
@@ -319,7 +323,7 @@ class Imagine(nn.Module):
     def forward(self):
         if exists(self.start_image):
             tqdm.write('Preparing with initial image...')
-            optim = DiffGrad(self.model.parameters(), lr = 3e-4)
+            optim = DiffGrad(self.model.parameters(), lr = self.start_time)
             pbar = trange(self.start_image_train_iters, desc='iteration')
             for _ in pbar:
                 loss = self.model.model(self.start_image)
