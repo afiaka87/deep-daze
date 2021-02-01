@@ -328,7 +328,7 @@ class Imagine(nn.Module):
             for _ in pbar:
                 loss = self.model.model(self.start_image)
                 loss.backward()
-                pbar.set_description(f'loss: {loss.item():.2f}')
+                pbar.set_description(f'loss: {loss.item():.4f}')
 
                 optim.step()
                 optim.zero_grad()
