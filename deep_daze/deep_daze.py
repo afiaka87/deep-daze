@@ -259,7 +259,7 @@ class Imagine(nn.Module):
                 T.Resize(image_width),
                 T.CenterCrop((image_width, image_width)),
                 T.ToTensor(),
-                T.Normalize(0.5, 0.5)
+                T.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
             ])
 
             image_tensor = transform(image)[None, ...].cuda()
