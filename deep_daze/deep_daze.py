@@ -323,7 +323,7 @@ class Imagine(nn.Module):
     def forward(self):
         if exists(self.start_image):
             tqdm.write('Preparing with initial image...')
-            optim = DiffGrad(self.model.parameters(), lr = self.start_time)
+            optim = DiffGrad(self.model.parameters(), lr = self.start_image_lr)
             pbar = trange(self.start_image_train_iters, desc='iteration')
             for _ in pbar:
                 loss = self.model.model(self.start_image)
