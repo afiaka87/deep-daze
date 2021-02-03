@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from shutil import copy
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from siren_pytorch import SirenNet, SirenWrapper
@@ -113,14 +114,23 @@ class DeepDaze(nn.Module):
         w0 = default(theta_hidden, 30.)
         w0_initial = default(theta_initial, 30.)
 
+        dim_in = 2
+        dim_hidden = 256
+        dim_out = 3
+        final_linear = nn.Linear(dim_in, dim_out)
+
+        with torch.no_grad():
+            final_linear.weight.uniform_(-np.sqrt(6 / dim_hidden) / theta_hidden)
+
         siren = SirenNet(
-            dim_in=2,
-            dim_hidden=256,
+            dim_in=dim_in,
+            dim_hidden=dim_hidden,
             num_layers=num_layers,
-            dim_out=3,
+            dim_out=dim_out,
             use_bias=True,
             w0=w0,
-            w0_initial=w0_initial
+            w0_initial=w0_initial,
+            final_activation=final_linear
         )
 
         self.model = SirenWrapper(
