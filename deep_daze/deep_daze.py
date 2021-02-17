@@ -36,8 +36,8 @@ def signal_handling(signum, frame):
 
 signal.signal(signal.SIGINT, signal_handling)
 
-perceptor, normalize_image = load()
 
+perceptor, normalize_image = load("RN50")
 # Helpers
 
 def exists(val):
