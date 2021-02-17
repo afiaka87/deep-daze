@@ -230,30 +230,10 @@ def create_text_path(text=None, img=None, encoding=None):
     return input_name
 
 class Imagine(nn.Module):
-    def __init__(
-            self,
-            *,
-            text=None,
-            img=None,
-            clip_encoding=None,
-            lr=1e-5,
-            batch_size=4,
-            gradient_accumulate_every=4,
-            save_every=100,
-            image_width=512,
-            num_layers=16,
-            epochs=20,
-            iterations=1050,
-            save_progress=False,
-            seed=None,
-            open_folder=True,
-            save_date_time=False,
-            start_image_path=None,
-            start_image_train_iters=10,
-            start_image_lr=3e-4,
-            theta_initial=None,
-            theta_hidden=None,
-    ):
+    def __init__(self, *, text=None, img=None, clip_encoding=None, lr=1e-5, batch_size=4, gradient_accumulate_every=4,
+                 save_every=100, image_width=512, num_layers=16, epochs=20, iterations=1050, save_progress=False,
+                 seed=None, open_folder=True, save_date_time=False, start_image_path=None, start_image_train_iters=10,
+                 start_image_lr=3e-4, theta_initial=None, theta_hidden=None, clip_model_name="RN50"):
 
         super().__init__()
 
