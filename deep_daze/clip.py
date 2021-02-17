@@ -5,6 +5,7 @@ import urllib
 import warnings
 from functools import lru_cache
 from pathlib import Path
+from typing import List
 
 import ftfy
 import regex as re
@@ -12,7 +13,14 @@ import torch
 from torchvision.transforms import Normalize
 from tqdm import tqdm
 
-MODEL_PATH = "https://openaipublic.azureedge.net/clip/models/40d365715913c9da98579312b702a82c18be219cc2a73407c4526f58eba950af/ViT-B-32.pt"
+_MODELS = {
+    "RN50": "https://openaipublic.azureedge.net/clip/models/afeb0e10f9e5a86da6080e35cf09123aca3b358a0c3e3b6c78a7b63bc04b6762/RN50.pt",
+    "ViT-B/32": "https://openaipublic.azureedge.net/clip/models/40d365715913c9da98579312b702a82c18be219cc2a73407c4526f58eba950af/ViT-B-32.pt",
+}
+
+def available_models() -> List[str]:
+    """Returns the names of available CLIP models"""
+    return list(_MODELS.keys())
 
 
 @lru_cache()
@@ -162,21 +170,36 @@ def _download(url, root=os.path.expanduser("~/.cache/clip")):
     return download_target
 
 
-def load():
+normalize_image: Normalize = Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+
+
+def load(name: str):
+    """Load a CLIP model
+
+    Parameters
+    ----------
+    name : str
+        A model name listed by `clip.available_models()`, or the path to a model checkpoint containing the state_dict
+    Returns
+    -------
+    model : torch.nn.Module
+        The CLIP model
+    normalize_image : torch.T.Normalize
+        The transform to normalize images to CLIP's mean and standard deviation.
     """
-    Downloads the existing CLIP model if necessary, finds and patches devices, then returns a torch model
-    and a Normalize containing the mean and standard deviation of the CLIP training set.
-    :rtype: tuple[Union[RecursiveScriptModule, RecursiveScriptModule], Normalize]
-    """
+    if name in _MODELS:
+        model_path = _download(_MODELS[name])
+    elif os.path.isfile(name):
+        model_path = name
+    else:
+        raise RuntimeError(f"Model {name} not found; available models = {available_models()}")
     device = 'cuda'
-    model_path = _download(MODEL_PATH)
     model = torch.jit.load(model_path, map_location=device).eval()
     n_px = model.input_resolution.item()
 
-    normalize_image = Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
 
     # patch the device names
-    device_holder = torch.jit.trace(lambda: torch.ones([]).to(torch.device(device)), example_inputs=[])
+    device_holder = torch.jit.trace(lambda: torch.ones([]).to(torch.device(device)), example_inputs=())
     device_node = [n for n in device_holder.graph.findAllNodes("prim::Constant") if "Device" in repr(n)][-1]
 
     def patch_device(module):

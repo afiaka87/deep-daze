@@ -20,7 +20,7 @@ from torchvision.utils import save_image
 
 from tqdm import trange, tqdm
 
-from deep_daze.clip import load, tokenize
+from deep_daze.clip import load, tokenize, normalize_image
 
 assert torch.cuda.is_available(), 'CUDA must be available in order to use Deep Daze'
 
@@ -35,8 +35,6 @@ def signal_handling(signum, frame):
 
 
 signal.signal(signal.SIGINT, signal_handling)
-
-perceptor, normalize_image = load()
 
 # Helpers
 
@@ -110,10 +108,11 @@ class DeepDaze(nn.Module):
             image_width=512,
             loss_coef=100,
             theta_initial=None,
-            theta_hidden=None
+            theta_hidden=None,
+            perceptor=load("ViT-B/32")
     ):
         super().__init__()
-        # load clip
+
 
         self.loss_coef = loss_coef
         self.image_width = image_width
@@ -124,6 +123,8 @@ class DeepDaze(nn.Module):
 
         w0 = default(theta_hidden, 30.)
         w0_initial = default(theta_initial, 30.)
+
+        self.perceptor = perceptor
 
         siren = SirenNet(
             dim_in=2,
@@ -162,7 +163,7 @@ class DeepDaze(nn.Module):
         image = torch.cat(pieces)
 
         with autocast(enabled=False):
-            image_embed = perceptor.encode_image(image)
+            image_embed = self.perceptor.encode_image(image)
 
         if not dry_run:
             self.num_batches_processed += self.batch_size
@@ -229,6 +230,7 @@ def create_text_path(text=None, img=None, encoding=None):
         input_name = "your_encoding"
     return input_name
 
+
 class Imagine(nn.Module):
     def __init__(
             self,
@@ -253,9 +255,11 @@ class Imagine(nn.Module):
             start_image_lr=3e-4,
             theta_initial=None,
             theta_hidden=None,
+            clip_model_name="ViT-B/32"
     ):
 
         super().__init__()
+
 
         if exists(seed):
             tqdm.write(f'setting seed: {seed}')
@@ -269,14 +273,18 @@ class Imagine(nn.Module):
         self.image_width = image_width
         total_batches = epochs * iterations * batch_size * gradient_accumulate_every
 
+        perceptor, _ = load(clip_model_name)
         model = DeepDaze(
             total_batches=total_batches,
             batch_size=batch_size,
             image_width=image_width,
             num_layers=num_layers,
             theta_initial=theta_initial,
-            theta_hidden=theta_hidden
+            theta_hidden=theta_hidden,
+            perceptor=perceptor
         ).cuda()
+
+        self.perceptor = perceptor
 
         self.model = model
         self.scaler = GradScaler()
@@ -292,7 +300,7 @@ class Imagine(nn.Module):
         self.filename = self.image_output_path()
 
         # create coding to optimize for
-        self.clip_img_transform = create_clip_img_transform(perceptor.input_resolution.item())
+        self.clip_img_transform = create_clip_img_transform(self.perceptor.input_resolution.item())
         self.clip_encoding = self.create_clip_encoding(text=text, img=img, encoding=clip_encoding)
 
         self.start_image = None
@@ -325,14 +333,14 @@ class Imagine(nn.Module):
 
     def create_text_encoding(self, text):
         tokenized_text = tokenize(text).cuda()
-        text_encoding = perceptor.encode_text(tokenized_text).detach()
+        text_encoding = self.perceptor.encode_text(tokenized_text).detach()
         return text_encoding
     
     def create_img_encoding(self, img):
         if isinstance(img, str):
             img = Image.open(img)
         normed_img = self.clip_img_transform(img).unsqueeze(0).cuda()
-        img_encoding = perceptor.encode_image(normed_img).detach()
+        img_encoding = self.perceptor.encode_image(normed_img).detach()
         return img_encoding
     
     def set_clip_encoding(self, text=None, img=None, encoding=None):

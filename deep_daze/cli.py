@@ -4,6 +4,8 @@ import fire
 
 from deep_daze import Imagine
 
+rn50 = "RN50"
+vit_b_32 = "ViT-B/32"
 
 def train(
         text,
@@ -25,8 +27,8 @@ def train(
         start_image_train_iters=50,
         theta_initial=None,
         theta_hidden=None,
-        start_image_lr=3e-4
-
+        start_image_lr=3e-4,
+        clip_model_name=vit_b_32
 ):
     """
     :param text: (required) A phrase less than 77 characters which you would like to visualize.
@@ -49,11 +51,15 @@ def train(
     :param theta_initial: Hyperparameter describing the frequency of the color space. Only applies to the first layer of the network.
     :param theta_hidden: Hyperparameter describing the frequency of the color space. Only applies to the hidden layers of the network.
     :param start_image_lr: Learning rate for the start image training.
+    :param clip_model_name: CLIP model to use. Either "ViT-B/32" or "RN50"
     """
     # Don't instantiate imagine if the user just wants help.
     if any("--help" in arg for arg in sys.argv):
         print("Type `imagine --help` for usage info.")
         sys.exit()
+
+    if clip_model_name not in [rn50, vit_b_32]:
+        print(f"Invalid model name: Choices: '{vit_b_32}' (normal) or '{rn50}' (large) ")
 
     num_layers = 32 if deeper else num_layers
 
@@ -76,6 +82,7 @@ def train(
         theta_initial=theta_initial,
         theta_hidden=theta_hidden,
         start_image_lr=start_image_lr,
+        clip_model_name=clip_model_name
     )
 
     print('Starting up...')
