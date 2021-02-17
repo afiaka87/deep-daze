@@ -6,6 +6,7 @@ from typing import Union, List
 
 import torch
 from PIL import Image
+from torch import Tensor
 from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize
 from tqdm import tqdm
 
@@ -53,7 +54,7 @@ def _download(url: str, root: str = os.path.expanduser("~/.cache/clip")):
     return download_target
 
 
-def _transform(n_px):
+def clip_transform(n_px):
     return Compose([
         Resize(n_px, interpolation=Image.BICUBIC),
         CenterCrop(n_px),
@@ -112,7 +113,7 @@ def load(name: str, device: Union[str, torch.device] = "cuda" if torch.cuda.is_a
         model = build_model(state_dict or model.state_dict()).to(device)
         if str(device) == "cpu":
             model.float()
-        return model, _transform(model.visual.input_resolution)
+        return model, clip_transform(model.visual.input_resolution)
 
     # patch the device names
     device_holder = torch.jit.trace(lambda: torch.ones([]).to(torch.device(device)), example_inputs=[])
@@ -156,10 +157,10 @@ def load(name: str, device: Union[str, torch.device] = "cuda" if torch.cuda.is_a
 
         model.float()
 
-    return model, _transform(model.input_resolution.item())
+    return model, clip_transform(model.input_resolution.item())
 
 
-def tokenize(texts: Union[str, List[str]], context_length: int = 77) -> torch.LongTensor:
+def tokenize(texts: Union[str, List[str]], context_length: int = 77) -> Tensor:
     """
     Returns the tokenized representation of given input string(s)
 
