@@ -12,8 +12,8 @@ import torch
 from torchvision.transforms import Normalize
 from tqdm import tqdm
 
-MODEL_PATH = "https://openaipublic.azureedge.net/clip/models/40d365715913c9da98579312b702a82c18be219cc2a73407c4526f58eba950af/ViT-B-32.pt"
-
+# MODEL_PATH = "https://openaipublic.azureedge.net/clip/models/40d365715913c9da98579312b702a82c18be219cc2a73407c4526f58eba950af/ViT-B-32.pt"
+MODEL_PATH = "https://openaipublic.azureedge.net/clip/models/afeb0e10f9e5a86da6080e35cf09123aca3b358a0c3e3b6c78a7b63bc04b6762/RN50.pt"
 
 @lru_cache()
 def default_bpe():
