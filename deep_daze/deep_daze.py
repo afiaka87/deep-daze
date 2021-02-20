@@ -6,10 +6,9 @@ import random
 from datetime import datetime
 from pathlib import Path
 from shutil import copy
-
+import numpy as np
 import torch
 import torch.nn.functional as F
-from siren_pytorch import SirenNet, SirenWrapper
 from torch import nn
 from torch.cuda.amp import GradScaler, autocast
 from torch_optimizer import DiffGrad, AdamP
@@ -21,12 +20,14 @@ from torchvision.utils import save_image
 from tqdm import trange, tqdm
 
 from deep_daze.clip import load, tokenize
+from deep_daze.siren import Siren
 
 assert torch.cuda.is_available(), 'CUDA must be available in order to use Deep Daze'
 
 # graceful keyboard interrupt
 
 terminate = False
+roughly_pi = 3.1415927410125732
 
 
 def signal_handling(signum, frame):
@@ -38,6 +39,7 @@ signal.signal(signal.SIGINT, signal_handling)
 
 perceptor, normalize_image = load()
 
+
 # Helpers
 
 def exists(val):
@@ -47,9 +49,33 @@ def exists(val):
 def default(val, d):
     return val if exists(val) else d
 
+
 def interpolate(image, size):
     return F.interpolate(image, (size, size), mode='bilinear', align_corners=False)
 
+
+def get_mgrid(sideX, sideY):
+    tensors = [np.linspace(-1, 1, num=sideY), np.linspace(-1, 1, num=sideX)]
+    mgrid = np.stack(np.meshgrid(*tensors), axis=-1)
+    mgrid = mgrid.reshape(-1, 2)  # dim 2
+    return mgrid
+
+
+def fourierfm(xy, _map=256, fourier_scale=4, mapping_type='gauss'):
+    def input_mapping(x, B):  # feature mappings
+        x_proj = (2. * np.pi * x) @ B
+        y = np.concatenate([np.sin(x_proj), np.cos(x_proj)], axis=-1)
+        print(' mapping input:', x.shape, 'output', y.shape)
+        return y
+
+    if mapping_type == 'gauss':  # Gaussian Fourier feature mappings
+        B = np.random.randn(2, _map)
+        B *= fourier_scale  # scale Gauss
+    else:  # basic
+        B = np.eye(2).T
+
+    xy = input_mapping(xy, B)
+    return xy
 
 def rand_cutout(image, size):
     width = image.shape[-1]
@@ -92,12 +118,12 @@ def create_clip_img_transform(image_width):
     clip_mean = [0.48145466, 0.4578275, 0.40821073]
     clip_std = [0.26862954, 0.26130258, 0.27577711]
     transform = T.Compose([
-                    #T.ToPILImage(),
-                    T.Resize(image_width),
-                    T.CenterCrop((image_width, image_width)),
-                    T.ToTensor(),
-                    T.Normalize(mean=clip_mean, std=clip_std)
-            ])
+        # T.ToPILImage(),
+        T.Resize(image_width),
+        T.CenterCrop((image_width, image_width)),
+        T.ToTensor(),
+        T.Normalize(mean=clip_mean, std=clip_std)
+    ])
     return transform
 
 
@@ -125,26 +151,25 @@ class DeepDaze(nn.Module):
         w0 = default(theta_hidden, 30.)
         w0_initial = default(theta_initial, 30.)
 
-        siren = SirenNet(
-            dim_in=2,
-            dim_hidden=256,
-            num_layers=num_layers,
-            dim_out=3,
-            use_bias=True,
-            w0=w0,
-            w0_initial=w0_initial
-        )
+        mesh_grid = get_mgrid(self.image_width, self.image_width)
+        mesh_grid = fourierfm(mesh_grid)
+        self.mesh_grid = mesh_grid
 
-        self.model = SirenWrapper(
-            siren,
-            image_width=image_width,
-            image_height=image_width
+        siren = Siren(
+            self.mesh_grid.shape[-1],
+            256,
+            hidden_layers=num_layers,
+            out_features=3,
+            side_x=image_width,
+            side_y=image_width,
+            first_omega_0=w0,
+            hidden_omega_0=w0_initial
         )
-
+        self.model = siren
         self.generate_size_schedule()
 
     def forward(self, text_embed, return_loss=True, dry_run=False):
-        out = self.model()
+        out = self.model(torch.from_numpy(self.mesh_grid.astype(np.float32)))
         out = norm_siren_output(out)
 
         if not return_loss:
@@ -216,7 +241,6 @@ class DeepDaze(nn.Module):
         return sizes
 
 
-    
 def create_text_path(text=None, img=None, encoding=None):
     if text is not None:
         input_name = text.replace(" ", "_")
@@ -228,6 +252,7 @@ def create_text_path(text=None, img=None, encoding=None):
     else:
         input_name = "your_encoding"
     return input_name
+
 
 class Imagine(nn.Module):
     def __init__(
@@ -312,7 +337,7 @@ class Imagine(nn.Module):
 
             image_tensor = transform(image)[None, ...].cuda()
             self.start_image = image_tensor
-            
+
     def create_clip_encoding(self, text=None, img=None, encoding=None):
         self.text = text
         self.img = img
@@ -327,14 +352,14 @@ class Imagine(nn.Module):
         tokenized_text = tokenize(text).cuda()
         text_encoding = perceptor.encode_text(tokenized_text).detach()
         return text_encoding
-    
+
     def create_img_encoding(self, img):
         if isinstance(img, str):
             img = Image.open(img)
         normed_img = self.clip_img_transform(img).unsqueeze(0).cuda()
         img_encoding = perceptor.encode_image(normed_img).detach()
         return img_encoding
-    
+
     def set_clip_encoding(self, text=None, img=None, encoding=None):
         encoding = self.create_clip_encoding(text=text, img=img, encoding=encoding).cuda()
         self.clip_encoding = encoding
@@ -390,7 +415,7 @@ class Imagine(nn.Module):
     def forward(self):
         if exists(self.start_image):
             tqdm.write('Preparing with initial image...')
-            optim = DiffGrad(self.model.parameters(), lr = self.start_image_lr)
+            optim = DiffGrad(self.model.parameters(), lr=self.start_image_lr)
             pbar = trange(self.start_image_train_iters, desc='iteration')
             for _ in pbar:
                 loss = self.model.model(self.start_image)
@@ -409,7 +434,7 @@ class Imagine(nn.Module):
 
         tqdm.write(f'Imagining "{self.textpath}" from the depths of my weights...')
 
-        self.model(self.clip_encoding, dry_run = True) # do one warmup step due to potential issue with CLIP and CUDA
+        self.model(self.clip_encoding, dry_run=True)  # do one warmup step due to potential issue with CLIP and CUDA
 
         if self.open_folder:
             open_folder('./')
@@ -425,4 +450,4 @@ class Imagine(nn.Module):
                     print('interrupted by keyboard, gracefully exiting')
                     return
 
-        self.save_image(self.epochs, self.iterations) # one final save at end
+        self.save_image(self.epochs, self.iterations)  # one final save at end
