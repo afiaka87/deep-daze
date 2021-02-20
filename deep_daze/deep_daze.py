@@ -136,7 +136,8 @@ class DeepDaze(nn.Module):
             image_width=512,
             loss_coef=100,
             theta_initial=None,
-            theta_hidden=None
+            theta_hidden=None,
+            fourier_scale=4
     ):
         super().__init__()
         # load clip
@@ -152,7 +153,7 @@ class DeepDaze(nn.Module):
         w0_initial = default(theta_initial, 30.)
 
         mesh_grid = get_mgrid(self.image_width, self.image_width)
-        mesh_grid = fourierfm(mesh_grid)
+        mesh_grid = fourierfm(mesh_grid, fourier_scale=fourier_scale)
         self.mesh_grid = mesh_grid
 
         siren = Siren(
@@ -278,6 +279,7 @@ class Imagine(nn.Module):
             start_image_lr=3e-4,
             theta_initial=None,
             theta_hidden=None,
+            fourier_scale=4
     ):
 
         super().__init__()
@@ -300,7 +302,8 @@ class Imagine(nn.Module):
             image_width=image_width,
             num_layers=num_layers,
             theta_initial=theta_initial,
-            theta_hidden=theta_hidden
+            theta_hidden=theta_hidden,
+            fourier_scale=fourier_scale
         ).cuda()
 
         self.model = model

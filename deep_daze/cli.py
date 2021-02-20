@@ -25,7 +25,8 @@ def train(
         start_image_train_iters=50,
         theta_initial=None,
         theta_hidden=None,
-        start_image_lr=3e-4
+        start_image_lr=3e-4,
+        fourier_scale=4
 
 ):
     """
@@ -49,6 +50,7 @@ def train(
     :param theta_initial: Hyperparameter describing the frequency of the color space. Only applies to the first layer of the network.
     :param theta_hidden: Hyperparameter describing the frequency of the color space. Only applies to the hidden layers of the network.
     :param start_image_lr: Learning rate for the start image training.
+    :param fourier_scale: Lower zooms in, higher zooms out.
     """
     # Don't instantiate imagine if the user just wants help.
     if any("--help" in arg for arg in sys.argv):
@@ -76,6 +78,7 @@ def train(
         theta_initial=theta_initial,
         theta_hidden=theta_hidden,
         start_image_lr=start_image_lr,
+        fourier_scale=fourier_scale,
     )
 
     print('Starting up...')
