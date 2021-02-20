@@ -61,7 +61,7 @@ def get_mgrid(sideX, sideY):
     return mgrid
 
 
-def fourierfm(xy, _map=256, fourier_scale=4, mapping_type='gauss'):
+def fourierfm(xy, _map=128, fourier_scale=4, mapping_type='gauss'):
     def input_mapping(x, B):  # feature mappings
         x_proj = (2. * np.pi * x) @ B
         y = np.concatenate([np.sin(x_proj), np.cos(x_proj)], axis=-1)
